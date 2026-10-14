@@ -10,7 +10,7 @@
   <header>
     <span class="tag">CSC 126</span>
     <h1>Face Mask Compliance Checker</h1>
-    <p>A web interface for the Python + OpenCV project. The Python server runs the webcam,
+    <p>A web interface for the Python + OpenCV project. Your browser camera streams frames to the Python server, which runs
        adaptive skin segmentation and 68-point facial landmarks; this page controls it.</p>
   </header>
 
@@ -19,6 +19,8 @@
       <div class="screen">
         <img id="feed" alt="Live camera feed" hidden>
         <img id="photo" alt="Analysed photo" hidden>
+        <video id="cam" playsinline muted hidden></video>
+        <canvas id="grab" hidden></canvas>
         <p id="placeholder">Start the camera or upload a photo</p>
       </div>
       <div class="buttons">

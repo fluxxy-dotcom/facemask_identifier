@@ -181,6 +181,41 @@ def api_snapshot():
                     headers={"Content-Disposition": f"attachment; filename={name}"})
 
 
+# ----------------------------------------------------------------------------
+# Browser camera: the page sends one JPEG frame at a time, we annotate and return it
+# ----------------------------------------------------------------------------
+SESSIONS = {}                      # session id -> {"tracker", "idx", "seen"}
+SESSION_LOCK = threading.Lock()
+
+
+def get_session(sid):
+    now = time.time()
+    with SESSION_LOCK:
+        for k in [k for k, v in SESSIONS.items() if now - v["seen"] > 120]:
+            del SESSIONS[k]        # forget visitors who left
+        sess = SESSIONS.setdefault(sid, {"tracker": fk.Tracker(mask.PersonState), "idx": 0})
+        sess["seen"] = now
+        sess["idx"] += 1
+        return sess
+
+
+@app.route("/api/frame", methods=["POST"])
+def api_frame():
+    file = request.files.get("image")
+    sid = (request.form.get("sid") or "anon")[:64]
+    if file is None:
+        return jsonify(ok=False, error="No frame"), 400
+    img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        return jsonify(ok=False, error="Bad frame"), 400
+    sess = get_session(sid)
+    people = analyse(img, sess["tracker"], sess["idx"])
+    _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    data = summarise(people)
+    data.update(ok=True, image="data:image/jpeg;base64," + base64.b64encode(buf).decode())
+    return jsonify(data)
+
+
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))
