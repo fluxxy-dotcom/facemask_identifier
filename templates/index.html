@@ -17,9 +17,11 @@
   <main>
     <section class="card video">
       <div class="screen">
-        <img id="feed" alt="Live camera feed" hidden>
+        <div id="stage" hidden>
+          <video id="cam" playsinline muted></video>
+          <canvas id="overlay"></canvas>
+        </div>
         <img id="photo" alt="Analysed photo" hidden>
-        <video id="cam" playsinline muted hidden></video>
         <canvas id="grab" hidden></canvas>
         <p id="placeholder">Start the camera or upload a photo</p>
       </div>

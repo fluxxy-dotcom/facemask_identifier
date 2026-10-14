@@ -216,6 +216,41 @@ def api_frame():
     return jsonify(data)
 
 
+def analyse_boxes(frame, tracker, idx):
+    """Like analyse(), but returns data only (boxes + statuses) - no drawing, no image."""
+    gray = fk.preprocess(frame)
+    with DETECT_LOCK:
+        faces = fk.detect_faces(gray, CASCADE, max_faces=4)
+        people = tracker.update(faces)
+        landmarks = []
+        if faces:
+            ok, lms = FACEMARK.fit(gray, np.array(faces, dtype=np.int32))
+            landmarks = lms if ok else []
+    boxes = []
+    for face, state, lm in zip(faces, people, landmarks):
+        status, _ = mask.process(state, frame, gray, face, lm[0], idx)
+        boxes.append({"id": state.id, "status": status, "box": [int(v) for v in face]})
+    stable = [{"id": s.id, "status": Counter(s.history).most_common(1)[0][0]}
+              for s in tracker.states if s.missed == 0 and s.history]
+    return boxes, stable
+
+
+@app.route("/api/detect", methods=["POST"])
+def api_detect():
+    file = request.files.get("image")
+    sid = (request.form.get("sid") or "anon")[:64]
+    if file is None:
+        return jsonify(ok=False, error="No frame"), 400
+    img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        return jsonify(ok=False, error="Bad frame"), 400
+    sess = get_session(sid)
+    boxes, stable = analyse_boxes(img, sess["tracker"], sess["idx"])
+    data = summarise(stable)
+    data.update(ok=True, boxes=boxes, w=img.shape[1], h=img.shape[0])
+    return jsonify(data)
+
+
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))

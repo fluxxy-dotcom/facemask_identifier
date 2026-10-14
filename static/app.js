@@ -1,13 +1,15 @@
-// Front-end logic. The camera now runs in the BROWSER (getUserMedia); each frame is
-// sent to the Python server, which runs the OpenCV pipeline and returns the annotated frame.
+// Front-end logic. The camera runs in the BROWSER and is shown live at full speed.
+// Small frames are sent to the Python server, which returns only face boxes + statuses;
+// the browser draws those on a transparent canvas over the live video.
 const $ = id => document.getElementById(id);
 const COLORS = {"MASK ON":"#1a9e4a","NO MASK":"#d83a3a","MASK BELOW NOSE":"#e07b00",
                 "MASK ON CHIN":"#e07b00","CHECK MASK":"#c9a400"};
 const SID = Math.random().toString(36).slice(2) + Date.now().toString(36);
-let stream = null, running = false, lastImage = null;
+const SEND_W = 320, OVERLAY_W = 640, IN_FLIGHT = 2;
+let stream = null, running = false, boxes = [], frameW = SEND_W, frameH = 240;
 
 function show(which) {                       // which: "feed" | "photo" | null
-  $("feed").hidden = which !== "feed";
+  $("stage").hidden = which !== "feed";
   $("photo").hidden = which !== "photo";
   $("placeholder").hidden = which !== null;
 }
@@ -33,28 +35,47 @@ async function post(url, body) {
 }
 
 function toBlob(canvas) {
-  return new Promise(res => canvas.toBlob(res, "image/jpeg", 0.8));
+  return new Promise(res => canvas.toBlob(res, "image/jpeg", 0.6));
 }
 
-async function loop() {
-  const video = $("cam"), canvas = $("grab"), ctx = canvas.getContext("2d");
-  let prev = performance.now(), fps = 0;
+function drawOverlay() {                     // boxes are in the (mirrored) sent-frame coordinates
+  const ov = $("overlay"), ctx = ov.getContext("2d");
+  ov.width = OVERLAY_W; ov.height = Math.round(OVERLAY_W * frameH / frameW);
+  ctx.clearRect(0, 0, ov.width, ov.height);
+  const k = ov.width / frameW;
+  ctx.lineWidth = 3; ctx.font = "bold 18px sans-serif"; ctx.textBaseline = "bottom";
+  for (const b of boxes) {
+    const [x, y, w, h] = b.box.map(v => v * k);
+    const col = COLORS[b.status] || "#888";
+    const label = `Person ${b.id}: ${b.status}`;
+    ctx.strokeStyle = col; ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = "rgba(0,0,0,.65)";
+    ctx.fillRect(x, Math.max(y - 24, 0), ctx.measureText(label).width + 10, 24);
+    ctx.fillStyle = col; ctx.fillText(label, x + 5, Math.max(y, 24) - 3);
+  }
+}
+
+let prevT = performance.now(), fps = 0;
+
+async function worker(offsetMs) {            // several workers overlap network waits
+  const video = $("cam"), canvas = document.createElement("canvas"), ctx = canvas.getContext("2d");
+  await new Promise(r => setTimeout(r, offsetMs));
   while (running) {
-    const w = 480, h = Math.round(w * video.videoHeight / video.videoWidth) || 360;
+    const w = SEND_W, h = Math.round(w * video.videoHeight / video.videoWidth) || 240;
     canvas.width = w; canvas.height = h;
-    ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1);       // mirror, like the desktop version
+    ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1);       // mirrored, like the video on screen
     ctx.drawImage(video, 0, 0, w, h); ctx.restore();
     try {
       const form = new FormData();
       form.append("image", await toBlob(canvas), "frame.jpg");
       form.append("sid", SID);
-      const res = await post("/api/frame", {method: "POST", body: form});
+      const res = await post("/api/detect", {method: "POST", body: form});
       if (!running) break;
       if (res.ok) {
-        lastImage = res.image;
-        $("feed").src = res.image;
+        boxes = res.boxes; frameW = res.w; frameH = res.h;
+        drawOverlay();
         const now = performance.now();
-        fps = 0.8 * fps + 0.2 * (1000 / (now - prev)); prev = now;
+        fps = 0.8 * fps + 0.2 * (1000 / (now - prevT)); prevT = now;
         res.fps = fps.toFixed(1);
         render(res);
       }
@@ -78,25 +99,30 @@ $("btnStart").onclick = async () => {
   const video = $("cam");
   video.srcObject = stream;
   await video.play();
-  running = true;
+  running = true; boxes = [];
   show("feed");
   $("btnStart").disabled = true; $("btnStop").disabled = false; $("btnSnap").disabled = false;
   $("msg").textContent = "Camera running. Try covering your nose and mouth with a mask.";
-  loop();
+  for (let i = 0; i < IN_FLIGHT; i++) worker(i * 150);
 };
 
 $("btnStop").onclick = () => {
   running = false;
   if (stream) stream.getTracks().forEach(t => t.stop());
-  stream = null; $("feed").removeAttribute("src"); show(null);
+  stream = null; boxes = []; $("cam").srcObject = null; show(null);
   $("btnStart").disabled = false; $("btnStop").disabled = true; $("btnSnap").disabled = true;
   $("msg").textContent = "Camera stopped.";
 };
 
-$("btnSnap").onclick = () => {                // saves the latest annotated frame
-  if (!lastImage) return;
+$("btnSnap").onclick = () => {                // video + labels merged into one JPEG
+  const ov = $("overlay"), video = $("cam");
+  const c = document.createElement("canvas"); c.width = ov.width; c.height = ov.height;
+  const ctx = c.getContext("2d");
+  ctx.save(); ctx.translate(c.width, 0); ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, c.width, c.height); ctx.restore();
+  ctx.drawImage(ov, 0, 0);
   const a = document.createElement("a");
-  a.href = lastImage; a.download = `mask_snapshot_${Date.now()}.jpg`; a.click();
+  a.href = c.toDataURL("image/jpeg", 0.9); a.download = `mask_snapshot_${Date.now()}.jpg`; a.click();
 };
 
 $("file").onchange = async e => {
