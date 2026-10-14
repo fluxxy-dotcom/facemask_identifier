@@ -31,6 +31,42 @@ DETECT_LOCK = threading.Lock()   # detectors are shared between request threads
 
 
 # ----------------------------------------------------------------------------
+# Pipeline view: small thumbnails of each processing step
+# ----------------------------------------------------------------------------
+def thumb(img, width=160):
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    h = max(1, round(img.shape[0] * width / img.shape[1]))
+    small = cv2.resize(img, (width, h))
+    _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 65])
+    return "data:image/jpeg;base64," + base64.b64encode(buf).decode()
+
+
+def build_stages(frame, states):
+    """frame must be the clean (undrawn) image. Returns the two groups shown on the page."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    eq = cv2.equalizeHist(gray)
+    blur = cv2.GaussianBlur(eq, (3, 3), 0)
+    ycrcb = cv2.cvtColor(frame, cv2.COLOR_BGR2YCrCb)
+    ops = [("Original", frame), ("Grayscale", gray), ("Histogram equalization", eq),
+           ("Gaussian blur", blur), ("YCrCb colour conversion", ycrcb)]
+    seg = []
+    vis = [st for st in states if st.missed == 0 and hasattr(st, "mask_view") and hasattr(st, "box")]
+    if vis:
+        big = max(vis, key=lambda st: st.is_biggest)
+        x, y, w, h = big.box
+        H, W = frame.shape[:2]
+        rx0, ry0 = max(x - w // 4, 0), max(y - h // 2, 0)
+        rx1, ry1 = min(x + w + w // 4, W), min(y + h + h // 4, H)
+        crop, m = frame[ry0:ry1, rx0:rx1], big.mask_view
+        if m is not None and m.shape[:2] == crop.shape[:2]:
+            seg = [("Face region", crop), ("Skin mask", m),
+                   ("Skin only", cv2.bitwise_and(crop, crop, mask=m))]
+    return {"ops": [{"name": n, "img": thumb(i)} for n, i in ops],
+            "seg": [{"name": n, "img": thumb(i)} for n, i in seg]}
+
+
+# ----------------------------------------------------------------------------
 # Core: run the whole mask pipeline on ONE frame (draws on the frame)
 # ----------------------------------------------------------------------------
 def analyse(frame, tracker, idx):
@@ -45,6 +81,7 @@ def analyse(frame, tracker, idx):
             landmarks = lms if ok else []                        # 68 landmarks
     for face, state, lm in zip(faces, people, landmarks):
         status, color = mask.process(state, frame, gray, face, lm[0], idx)
+        state.box = face
         fk.draw_label(frame, face, f"Person {state.id}: {status}", color)
     mask.summary(frame, tracker.states, len(faces))              # banner + mask inset
     return [{"id": s.id, "status": Counter(s.history).most_common(1)[0][0]}
@@ -169,6 +206,7 @@ def api_analyze():
     _, buf = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 90])
     data = summarise(people)
     data.update(ok=True, image="data:image/jpeg;base64," + base64.b64encode(buf).decode())
+    data["stages"] = build_stages(img, tracker.states)
     return jsonify(data)
 
 
@@ -216,8 +254,9 @@ def api_frame():
     return jsonify(data)
 
 
-def analyse_boxes(frame, tracker, idx):
+def analyse_boxes(frame, tracker, idx, want_stages=False):
     """Like analyse(), but returns data only (boxes + statuses) - no drawing, no image."""
+    clean = frame.copy() if want_stages else None
     gray = fk.preprocess(frame)
     with DETECT_LOCK:
         faces = fk.detect_faces(gray, CASCADE, max_faces=4)
@@ -229,10 +268,12 @@ def analyse_boxes(frame, tracker, idx):
     boxes = []
     for face, state, lm in zip(faces, people, landmarks):
         status, _ = mask.process(state, frame, gray, face, lm[0], idx)
+        state.box = face
         boxes.append({"id": state.id, "status": status, "box": [int(v) for v in face]})
     stable = [{"id": s.id, "status": Counter(s.history).most_common(1)[0][0]}
               for s in tracker.states if s.missed == 0 and s.history]
-    return boxes, stable
+    stages = build_stages(clean, tracker.states) if want_stages else None
+    return boxes, stable, stages
 
 
 @app.route("/api/detect", methods=["POST"])
@@ -245,9 +286,12 @@ def api_detect():
     if img is None:
         return jsonify(ok=False, error="Bad frame"), 400
     sess = get_session(sid)
-    boxes, stable = analyse_boxes(img, sess["tracker"], sess["idx"])
+    want = request.form.get("stages") == "1"
+    boxes, stable, stages = analyse_boxes(img, sess["tracker"], sess["idx"], want)
     data = summarise(stable)
     data.update(ok=True, boxes=boxes, w=img.shape[1], h=img.shape[0])
+    if stages:
+        data["stages"] = stages
     return jsonify(data)
 
 

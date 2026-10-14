@@ -55,7 +55,16 @@ function drawOverlay() {                     // boxes are in the (mirrored) sent
   }
 }
 
-let prevT = performance.now(), fps = 0;
+let prevT = performance.now(), fps = 0, lastStages = 0;
+
+function renderStages(st) {                  // fills the "Image Operations / Segmentation" panels
+  if (!st) return;
+  const cards = list => list.map(s =>
+    `<div class="step"><img src="${s.img}" alt="${s.name}"><span>${s.name}</span></div>`).join("");
+  $("ops").innerHTML = cards(st.ops);
+  $("seg").innerHTML = st.seg.length ? cards(st.seg)
+      : '<p class="muted">No face found, so there is nothing to segment.</p>';
+}
 
 async function worker(offsetMs) {            // several workers overlap network waits
   const video = $("cam"), canvas = document.createElement("canvas"), ctx = canvas.getContext("2d");
@@ -69,6 +78,9 @@ async function worker(offsetMs) {            // several workers overlap network 
       const form = new FormData();
       form.append("image", await toBlob(canvas), "frame.jpg");
       form.append("sid", SID);
+      if (performance.now() - lastStages > 1000) {            // pipeline thumbnails once a second
+        form.append("stages", "1"); lastStages = performance.now();
+      }
       const res = await post("/api/detect", {method: "POST", body: form});
       if (!running) break;
       if (res.ok) {
@@ -78,6 +90,7 @@ async function worker(offsetMs) {            // several workers overlap network 
         fps = 0.8 * fps + 0.2 * (1000 / (now - prevT)); prevT = now;
         res.fps = fps.toFixed(1);
         render(res);
+        renderStages(res.stages);
       }
     } catch (e) {
       $("msg").textContent = "Lost connection to the server, retrying...";
@@ -132,7 +145,7 @@ $("file").onchange = async e => {
   const form = new FormData(); form.append("image", file);
   const res = await post("/api/analyze", {method: "POST", body: form});
   if (!res.ok) { $("msg").textContent = res.error; return; }
-  $("photo").src = res.image; show("photo"); render(res);
+  $("photo").src = res.image; show("photo"); render(res); renderStages(res.stages);
   $("msg").textContent = res.faces ? "Photo analysed." : "No face found - try a clearer, front-facing photo.";
   e.target.value = "";
 };
