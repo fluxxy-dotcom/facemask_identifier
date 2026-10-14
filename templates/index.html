@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Face Mask Compliance Checker</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <span class="tag">CSC 126</span>
+    <h1>Face Mask Compliance Checker</h1>
+    <p>A web interface for the Python + OpenCV project. The Python server runs the webcam,
+       adaptive skin segmentation and 68-point facial landmarks; this page controls it.</p>
+  </header>
+
+  <main>
+    <section class="card video">
+      <div class="screen">
+        <img id="feed" alt="Live camera feed" hidden>
+        <img id="photo" alt="Analysed photo" hidden>
+        <p id="placeholder">Start the camera or upload a photo</p>
+      </div>
+      <div class="buttons">
+        <button id="btnStart">Start camera</button>
+        <button id="btnStop" class="alt" disabled>Stop camera</button>
+        <button id="btnSnap" class="alt" disabled>Save snapshot</button>
+        <label class="btn alt">Upload photo
+          <input id="file" type="file" accept="image/*" hidden>
+        </label>
+      </div>
+      <p id="msg" class="muted"></p>
+    </section>
+
+    <aside class="card">
+      <div id="banner" class="banner">No faces detected</div>
+      <div class="meter"><div id="bar"></div></div>
+      <p class="muted"><span id="comp">0</span>% compliance &middot;
+         <span id="count">0</span> face(s) &middot; <span id="fps">0</span> FPS</p>
+      <div id="people"></div>
+    </aside>
+  </main>
+
+  <section class="card info">
+    <h2>How it works</h2>
+    <p><b>Image operations</b> prepare each frame (grayscale, equalization, blur, colour conversion).
+       <b>Segmentation</b> learns each person's skin colour and measures how much skin remains on the nose,
+       mouth and chin. <b>Facial landmarks</b> locate those three zones. The status is a majority vote over
+       the last 9 frames.</p>
+  </section>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
