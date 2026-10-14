@@ -33,14 +33,14 @@ async function post(url, body) {
 }
 
 function toBlob(canvas) {
-  return new Promise(res => canvas.toBlob(res, "image/jpeg", 0.6));
+  return new Promise(res => canvas.toBlob(res, "image/jpeg", 0.8));
 }
 
 async function loop() {
   const video = $("cam"), canvas = $("grab"), ctx = canvas.getContext("2d");
   let prev = performance.now(), fps = 0;
   while (running) {
-    const w = 320, h = Math.round(w * video.videoHeight / video.videoWidth) || 360;
+    const w = 480, h = Math.round(w * video.videoHeight / video.videoWidth) || 360;
     canvas.width = w; canvas.height = h;
     ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1);       // mirror, like the desktop version
     ctx.drawImage(video, 0, 0, w, h); ctx.restore();
