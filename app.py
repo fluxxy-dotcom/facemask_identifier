@@ -191,22 +191,25 @@ def api_stats():
 
 @app.route("/api/analyze", methods=["POST"])
 def api_analyze():
+    """Photo upload: same pipeline as the live camera, returns the clean photo + boxes."""
     file = request.files.get("image")
     if file is None:
         return jsonify(ok=False, error="No image uploaded"), 400
     img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         return jsonify(ok=False, error="That file is not a readable image"), 400
-    scale = min(1.0, 800 / img.shape[1])
-    img = cv2.resize(img, None, fx=scale, fy=scale)
+    h, w = img.shape[:2]
+    if w > 960:
+        img = cv2.resize(img, (960, round(h * 960 / w)))
     tracker = fk.Tracker(mask.PersonState)
-    for i in range(mask.SMOOTH_FRAMES):          # fill the majority-vote history
-        out = img.copy()
-        people = analyse(out, tracker, i)
-    _, buf = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 90])
-    data = summarise(people)
-    data.update(ok=True, image="data:image/jpeg;base64," + base64.b64encode(buf).decode())
-    data["stages"] = build_stages(img, tracker.states)
+    boxes, stable = [], []
+    for i in range(mask.SMOOTH_FRAMES):          # repeat so the majority vote has history
+        boxes, stable, _ = analyse_boxes(img.copy(), tracker, i)
+    _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    data = summarise(stable)
+    data.update(ok=True, boxes=boxes, w=img.shape[1], h=img.shape[0],
+                image="data:image/jpeg;base64," + base64.b64encode(buf).decode(),
+                stages=build_stages(img, tracker.states))
     return jsonify(data)
 
 

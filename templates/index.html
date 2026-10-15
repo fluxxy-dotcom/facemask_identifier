@@ -3,64 +3,98 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Face Mask Compliance Checker</title>
+  <title>Real-Time Face Mask Compliance Checker</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <header>
-    <span class="tag">CSC 126</span>
-    <h1>Face Mask Compliance Checker</h1>
-    <p>A web interface for the Python + OpenCV project. Your browser camera streams frames to the Python server, which runs
-       adaptive skin segmentation and 68-point facial landmarks; this page controls it.</p>
-  </header>
+  <!-- shared icons -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="mask" viewBox="0 0 64 64">
+      <path d="M15 26 C4 25 2 38 9 43 C12 45 15 43 15 41" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      <path d="M49 26 C60 25 62 38 55 43 C52 45 49 43 49 41" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      <path d="M14 22 Q32 14 50 22 L50 38 Q50 50 32 55 Q14 50 14 38 Z" fill="#dcecfb" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M20 30 Q32 33 44 30 M20 37 Q32 40 44 37 M23 44 Q32 47 41 44" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+    </symbol>
+  </svg>
 
-  <main>
-    <section class="card video">
-      <div class="screen">
-        <div id="stage" hidden>
-          <video id="cam" playsinline muted></video>
-          <canvas id="overlay"></canvas>
+  <div class="app">
+    <header class="top">
+      <svg class="logo"><use href="#mask"/></svg>
+      <div>
+        <h1>Real-Time Face Mask Compliance Checker</h1>
+        <p>Caraga State University &bull; College of Computing and Information Sciences</p>
+      </div>
+    </header>
+
+    <!-- 1. HOME -->
+    <section id="home" class="body">
+      <p class="lead">Check if face masks are worn properly</p>
+      <svg class="hero"><use href="#mask"/></svg>
+      <h2 class="cta">Try our Face Mask Checker!</h2>
+      <button id="btnStart" class="outline big">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9Zm3 5.5A4.5 4.5 0 1 1 7.5 13 4.5 4.5 0 0 1 12 8.5Zm0 2A2.5 2.5 0 1 0 14.5 13 2.5 2.5 0 0 0 12 10.5Z"/></svg>
+        Open Camera
+      </button>
+      <p class="hint">Make sure your webcam is connected.<br>Allow camera access when prompted.<br>The system will start automatically.</p>
+      <p id="msg" class="msg"></p>
+      <label class="link">or upload a photo instead
+        <input id="file" type="file" accept="image/*" hidden>
+      </label>
+
+      <div class="about">
+        <span class="info-i">i</span>
+        <div>
+          <h3>About this checker</h3>
+          <p>This web application checks whether people are wearing face masks properly.
+             It detects faces and determines if the nose and mouth are covered.</p>
         </div>
-        <img id="photo" alt="Analysed photo" hidden>
-        <canvas id="grab" hidden></canvas>
-        <p id="placeholder">Start the camera or upload a photo</p>
       </div>
-      <div class="buttons">
-        <button id="btnStart">Start camera</button>
-        <button id="btnStop" class="alt" disabled>Stop camera</button>
-        <button id="btnSnap" class="alt" disabled>Save snapshot</button>
-        <label class="btn alt">Upload photo
-          <input id="file" type="file" accept="image/*" hidden>
-        </label>
-      </div>
-      <p id="msg" class="muted"></p>
     </section>
 
-    <aside class="card">
-      <div id="banner" class="banner">No faces detected</div>
-      <div class="meter"><div id="bar"></div></div>
-      <p class="muted"><span id="comp">0</span>% compliance &middot;
-         <span id="count">0</span> face(s) &middot; <span id="fps">0</span> FPS</p>
-      <div id="people"></div>
-    </aside>
-  </main>
+    <!-- 2. LIVE -->
+    <section id="live" class="body" hidden>
+      <h2 class="live-title">
+        <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M3 6.5A2.5 2.5 0 0 1 5.5 4h8A2.5 2.5 0 0 1 16 6.5v2.3l4.2-2.6a.8.8 0 0 1 1.2.7v10.2a.8.8 0 0 1-1.2.7L16 15.2v2.3a2.5 2.5 0 0 1-2.5 2.5h-8A2.5 2.5 0 0 1 3 17.5v-11Z"/></svg>
+        <span id="liveTitle">Live Webcam Feed</span>
+      </h2>
 
-  <section class="card info" id="pipeline">
-    <h2>Image processing pipeline</h2>
-    <h3>a. Image Operations</h3>
-    <div id="ops" class="steps"><p class="muted">Start the camera or upload a photo to see each step.</p></div>
-    <h3>b. Image Segmentation</h3>
-    <div id="seg" class="steps"><p class="muted">Appears when a face is detected.</p></div>
-  </section>
+      <div id="stage">
+        <video id="cam" playsinline muted></video>
+        <img id="photo" alt="Analysed photo" hidden>
+        <canvas id="overlay"></canvas>
+      </div>
 
-  <section class="card info">
-    <h2>How it works</h2>
-    <p><b>Image operations</b> prepare each frame (grayscale, equalization, blur, colour conversion).
-       <b>Segmentation</b> learns each person's skin colour and measures how much skin remains on the nose,
-       mouth and chin. <b>Facial landmarks</b> locate those three zones. The status is a majority vote over
-       the last 9 frames.</p>
-  </section>
+      <div id="banner" class="banner idle">No faces detected</div>
 
+      <div class="stats">
+        <div class="row"><span class="ic people"><svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M9 11a3.5 3.5 0 1 0-3.5-3.5A3.5 3.5 0 0 0 9 11Zm7 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3ZM9 13c-3 0-6 1.5-6 4v2h12v-2c0-2.5-3-4-6-4Zm7 .2c2.7.3 5 1.7 5 3.8v2h-4v-2a5 5 0 0 0-1-3.8Z"/></svg></span>
+          <span class="lab">People detected:</span><b id="count">0</b></div>
+        <div class="row"><span class="ic good">&#10003;</span>
+          <span class="lab">Mask on:</span><b id="masked">0</b></div>
+        <div class="row"><span class="ic warn">!</span>
+          <span class="lab">Needs attention:</span><b id="attn">0</b></div>
+        <p id="meta" class="meta"></p>
+      </div>
+
+      <div class="actions">
+        <button id="btnStop" class="outline"><span class="sq"></span><span id="stopLabel">Stop Camera</span></button>
+        <button id="btnSnap" class="outline plain">Save snapshot</button>
+      </div>
+
+      <div id="pipeline">
+        <h3>Image processing pipeline</h3>
+        <p class="muted">Each frame is prepared with image operations, then skin colour is segmented around
+           the nose, mouth and chin (located with 68 facial landmarks). The status is a majority vote
+           over the last 9 frames.</p>
+        <h4>a. Image Operations</h4>
+        <div id="ops" class="steps"><p class="muted">Waiting for the first frame...</p></div>
+        <h4>b. Image Segmentation</h4>
+        <div id="seg" class="steps"><p class="muted">Appears when a face is detected.</p></div>
+      </div>
+    </section>
+  </div>
+
+  <canvas id="grab" hidden></canvas>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
